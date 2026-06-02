@@ -1,7 +1,8 @@
 # Colab 실행 명령어 — RECRAG Step 8~9 생성 모듈 (Raw Baseline)
 
 > Google Colab(paid GPU)에서 GitHub repo를 clone하여 실행하는 전체 흐름.
-> `<YOUR_GITHUB_REPO_URL>` 은 본인의 GitHub repo 주소로 바꾼다.
+> repo: `https://github.com/haneul-dev/recrag-generation-module.git`
+> clone하면 폴더명은 **`recrag-generation-module`** 이 된다(repo 이름과 동일).
 
 ---
 
@@ -21,10 +22,10 @@
 
 ## 2. GitHub repo clone
 ```bash
-!git clone <YOUR_GITHUB_REPO_URL>
-%cd recrag_generation
+!git clone https://github.com/haneul-dev/recrag-generation-module.git
+%cd /content/recrag-generation-module
 ```
-> repo 이름이 다르면 `%cd <repo_folder_name>` 으로 맞춘다.
+> clone 폴더명은 repo 이름과 같은 `recrag-generation-module` 이다.
 
 ---
 
@@ -32,7 +33,7 @@
 ```bash
 !pip install -r requirements.txt
 ```
-> torch는 Colab 기본 설치본을 사용한다. 설치 후 런타임 재시작 안내가 뜨면 재시작 후 다시 `%cd recrag_generation`.
+> torch는 Colab 기본 설치본을 사용한다. 설치 후 런타임 재시작 안내가 뜨면 재시작 후 다시 `%cd /content/recrag-generation-module`.
 
 ---
 

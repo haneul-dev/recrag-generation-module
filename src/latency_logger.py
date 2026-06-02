@@ -82,8 +82,10 @@ def compute_latencies(ts: dict) -> dict:
     return out
 
 
-def compute_tokens_per_second(output_token_count: int, generation_latency_ms) -> float | None:
-    """초당 출력 토큰. generation_latency_ms 가 0/None 이면 None (0 나눗셈 방지)."""
+def compute_tokens_per_second(output_token_count, generation_latency_ms) -> float | None:
+    """초당 출력 토큰. 토큰수/latency 가 없거나 0이면 None (0 나눗셈·None 방지)."""
+    if output_token_count is None:
+        return None
     if not generation_latency_ms or generation_latency_ms <= 0:
         return None
     return output_token_count / (generation_latency_ms / 1000.0)
@@ -91,15 +93,29 @@ def compute_tokens_per_second(output_token_count: int, generation_latency_ms) ->
 
 # ── 저장 ────────────────────────────────────────────────────
 def write_jsonl(records: list[dict], path: str) -> None:
+    """전체 records 를 JSONL로 일괄 저장(덮어쓰기)."""
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         for rec in records:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
 
+def init_jsonl(path: str) -> None:
+    """증분 저장 시작 전 JSONL 파일을 비운다(이전 실행 결과 누적 방지)."""
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    open(path, "w", encoding="utf-8").close()
+
+
+def append_jsonl(record: dict, path: str) -> None:
+    """결과 1행을 JSONL에 즉시 append (중간 오류 시 결과 유실 방지)."""
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
 # CSV 평탄화 컬럼 (latency_logging_schema §6.3)
 CSV_COLUMNS = [
-    "experiment_id", "run_id", "is_warmup", "query_id", "llm_model",
+    "experiment_id", "run_id", "is_warmup", "status", "query_id", "llm_model",
     "context_type", "prompt_type", "top_k_input",
     "input_token_count", "output_token_count",
     "context_formatting_latency_ms", "generation_latency_ms",
@@ -107,7 +123,8 @@ CSV_COLUMNS = [
     "tokens_per_second", "groundedness_note", "format_compliance",
     "inline_evidence_set_match", "inline_cited_chunk_ids",
     "evidence_block_chunk_ids", "cited_chunk_ids", "relevant_chunk_ids",
-    "content_missing_chunk_count", "all_content_missing", "error_type",
+    "content_missing_chunk_count", "all_content_missing",
+    "error_type", "error_message",
 ]
 
 # CSV 에서 배열 -> "C001;C004" 직렬화 대상

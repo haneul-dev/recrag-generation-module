@@ -69,13 +69,14 @@ def run_one(cfg, runner, query, filt, run_id, is_warmup) -> dict:
     timer.mark("t0_generation_input_received")
 
     if filt["all_content_missing"]:
-        # ── 근거 부족 경로: LLM 호출 없음 ──
+        # ── 근거 부족 경로: LLM 호출 없음 (정상 완료된 기권) ──
         timer.mark("t1_context_formatting_started")
         timer.mark("t2_context_formatting_finished")
         timer.mark("t3_llm_generation_started")
         timer.mark("t4_llm_generation_finished")
         rec.update(
             {
+                "status": "success",
                 "final_prompt_hash": None,
                 "input_token_count": 0,
                 "output_token_count": 0,
@@ -88,6 +89,7 @@ def run_one(cfg, runner, query, filt, run_id, is_warmup) -> dict:
                 "format_compliance": True,
                 "decoding_note": None,
                 "error_type": "all_content_missing",
+                "error_message": None,
             }
         )
         timer.mark("t5_postprocessing_finished")
@@ -98,35 +100,62 @@ def run_one(cfg, runner, query, filt, run_id, is_warmup) -> dict:
         timer.mark("t2_context_formatting_finished")
 
         timer.mark("t3_llm_generation_started")
-        gen = runner.generate(messages)
-        timer.mark("t4_llm_generation_finished")
+        try:
+            gen = runner.generate(messages)
+            timer.mark("t4_llm_generation_finished")
 
-        parsed = output_parser.parse_generation_output(
-            gen["output_text"], filt["used_chunk_ids"]
-        )
-        timer.mark("t5_postprocessing_finished")
+            parsed = output_parser.parse_generation_output(
+                gen["output_text"], filt["used_chunk_ids"]
+            )
+            timer.mark("t5_postprocessing_finished")
 
-        rec.update(
-            {
-                "final_prompt_hash": _prompt_hash(messages),
-                "final_prompt_text": (
-                    json.dumps(messages, ensure_ascii=False)
-                    if cfg["logging"].get("save_final_prompt_text")
-                    else None
-                ),
-                "input_token_count": gen["input_token_count"],
-                "output_token_count": gen["output_token_count"],
-                "generated_answer": parsed["answer"],
-                "inline_cited_chunk_ids": parsed["inline_cited_chunk_ids"],
-                "evidence_block_chunk_ids": parsed["evidence_block_chunk_ids"],
-                "cited_chunk_ids": parsed["cited_chunk_ids"],
-                "groundedness_note": parsed["groundedness_note"],
-                "inline_evidence_set_match": parsed["inline_evidence_set_match"],
-                "format_compliance": parsed["format_compliance"],
-                "decoding_note": gen["decoding_note"],
-                "error_type": parsed["error_type"],
-            }
-        )
+            rec.update(
+                {
+                    "status": "success",
+                    "final_prompt_hash": _prompt_hash(messages),
+                    "final_prompt_text": (
+                        json.dumps(messages, ensure_ascii=False)
+                        if cfg["logging"].get("save_final_prompt_text")
+                        else None
+                    ),
+                    "input_token_count": gen["input_token_count"],
+                    "output_token_count": gen["output_token_count"],
+                    "generated_answer": parsed["answer"],
+                    "inline_cited_chunk_ids": parsed["inline_cited_chunk_ids"],
+                    "evidence_block_chunk_ids": parsed["evidence_block_chunk_ids"],
+                    "cited_chunk_ids": parsed["cited_chunk_ids"],
+                    "groundedness_note": parsed["groundedness_note"],
+                    "inline_evidence_set_match": parsed["inline_evidence_set_match"],
+                    "format_compliance": parsed["format_compliance"],
+                    "decoding_note": gen["decoding_note"],
+                    "error_type": parsed["error_type"],
+                    "error_message": None,
+                }
+            )
+        except Exception as e:
+            # GPU OOM 등 생성 중 오류 — 해당 query 결과를 error record 로 남기고 계속 진행
+            timer.mark("t4_llm_generation_finished")
+            rec.update(
+                {
+                    "status": "error",
+                    "final_prompt_hash": _prompt_hash(messages),
+                    "input_token_count": None,
+                    "output_token_count": None,
+                    "generated_answer": None,
+                    "inline_cited_chunk_ids": [],
+                    "evidence_block_chunk_ids": [],
+                    "cited_chunk_ids": [],
+                    "groundedness_note": "generation failed before completion",
+                    "inline_evidence_set_match": False,
+                    "format_compliance": False,
+                    "decoding_note": None,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                }
+            )
+            timer.mark("t5_postprocessing_finished")
+            print(f"    [ERROR] {query['query_id']} run={run_id}: "
+                  f"{type(e).__name__}: {e}")
 
     # 타임스탬프 + 파생 latency
     ts = timer.as_dict()
@@ -168,7 +197,14 @@ def main():
     warmup_runs = int(cfg["experiment"]["warmup_runs"])
     repeats = int(cfg["experiment"]["repeats"])
 
+    # 증분 저장 준비: JSONL은 비우고 시작, 이후 query 단위로 즉시 append
+    jsonl_path = cfg["logging"]["jsonl_path"]
+    csv_path = cfg["logging"]["csv_path"]
+    ll.init_jsonl(jsonl_path)
+    print(f"[save] incremental JSONL -> {jsonl_path}")
+
     all_records = []
+    error_count = 0
     for query in eval_set:
         filt = data_loader.filter_chunks(query["retrieved_chunks"])
         status = "ABSTAIN(근거부족)" if filt["all_content_missing"] else "generate"
@@ -176,35 +212,40 @@ def main():
               f"used={len(filt['used_chunk_ids'])}/{len(filt['retrieved_chunk_ids'])} chunks "
               f"(content_missing={filt['content_missing_chunk_count']})")
 
-        # warmup (집계 제외) + 측정 repeats
+        query_records = []
+        # warmup (집계 제외) + 측정 repeats. 각 run 결과를 즉시 JSONL append.
         for w in range(warmup_runs):
             rec = run_one(cfg, runner, query, filt, run_id=f"warmup{w+1}", is_warmup=True)
-            all_records.append(rec)
+            ll.append_jsonl(rec, jsonl_path)   # 결과 유실 방지: 즉시 기록
+            query_records.append(rec)
         for r in range(repeats):
             rec = run_one(cfg, runner, query, filt, run_id=f"r{r+1:02d}", is_warmup=False)
-            all_records.append(rec)
+            ll.append_jsonl(rec, jsonl_path)
+            query_records.append(rec)
 
-        # query 별 측정 run 의 생성 latency 중앙값 출력
+        all_records.extend(query_records)
+        error_count += sum(1 for rec in query_records if rec.get("status") == "error")
+
+        # CSV는 query 단위로 누적분을 다시 써서 증분 반영
+        ll.write_csv(all_records, csv_path)
+
+        # query 별 측정 run 의 생성 latency 중앙값 출력 (성공 run 만)
         gen_lats = [
             rec["generation_latency_ms"]
-            for rec in all_records
-            if rec["query_id"] == query["query_id"]
-            and not rec["is_warmup"]
+            for rec in query_records
+            if not rec["is_warmup"]
+            and rec.get("status") == "success"
             and rec["generation_latency_ms"] is not None
         ]
         if gen_lats:
             print(f"    generation_latency median = {statistics.median(gen_lats):.1f} ms "
                   f"(n={len(gen_lats)})")
 
-    # 저장
-    jsonl_path = cfg["logging"]["jsonl_path"]
-    csv_path = cfg["logging"]["csv_path"]
-    ll.write_jsonl(all_records, jsonl_path)
-    ll.write_csv(all_records, csv_path)
     print(f"\n[save] JSONL -> {jsonl_path}")
     print(f"[save] CSV   -> {csv_path}")
     print(f"[done] {len(all_records)} rows "
-          f"({len(eval_set)} queries × (warmup {warmup_runs} + repeats {repeats}))")
+          f"({len(eval_set)} queries × (warmup {warmup_runs} + repeats {repeats})) | "
+          f"error rows = {error_count}")
 
 
 if __name__ == "__main__":
