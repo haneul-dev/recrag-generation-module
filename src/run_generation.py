@@ -21,6 +21,7 @@ import json
 import os
 import statistics
 import sys
+import traceback
 
 # src/ 를 import 경로에 추가 (Colab/로컬 어디서 실행해도 동작)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -135,6 +136,12 @@ def run_one(cfg, runner, query, filt, run_id, is_warmup) -> dict:
         except Exception as e:
             # GPU OOM 등 생성 중 오류 — 해당 query 결과를 error record 로 남기고 계속 진행
             timer.mark("t4_llm_generation_finished")
+            tb = traceback.format_exc()
+            # AttributeError 처럼 메시지가 비는 경우를 대비해 traceback 마지막 줄까지 확보
+            msg = str(e).strip() or repr(e)
+            if not msg or msg == f"{type(e).__name__}()":
+                last = [ln for ln in tb.strip().splitlines() if ln.strip()]
+                msg = last[-1] if last else type(e).__name__
             rec.update(
                 {
                     "status": "error",
@@ -150,12 +157,16 @@ def run_one(cfg, runner, query, filt, run_id, is_warmup) -> dict:
                     "format_compliance": False,
                     "decoding_note": None,
                     "error_type": type(e).__name__,
-                    "error_message": str(e),
+                    "error_message": msg,
                 }
             )
             timer.mark("t5_postprocessing_finished")
-            print(f"    [ERROR] {query['query_id']} run={run_id}: "
-                  f"{type(e).__name__}: {e}")
+            print(f"    [ERROR] {query['query_id']} run={run_id}: {type(e).__name__}: {msg}")
+            # 첫 실패는 전체 traceback 을 출력해 원인 진단을 돕는다
+            if not getattr(run_one, "_tb_printed", False):
+                print("    ----- full traceback (first error) -----")
+                print(tb)
+                run_one._tb_printed = True
 
     # 타임스탬프 + 파생 latency
     ts = timer.as_dict()

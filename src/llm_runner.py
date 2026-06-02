@@ -86,18 +86,21 @@ class LLMRunner:
         if self.model is None or self.tokenizer is None:
             raise RuntimeError("LLMRunner.load() 를 먼저 호출해야 합니다.")
 
-        # ChatML 템플릿 적용 (generation prompt 추가)
-        input_ids = self.tokenizer.apply_chat_template(
+        # 1) ChatML 템플릿을 '문자열'로 적용 (Qwen 공식 패턴)
+        text = self.tokenizer.apply_chat_template(
             messages,
+            tokenize=False,
             add_generation_prompt=True,
-            return_tensors="pt",
-        ).to(self.model.device)
+        )
 
-        input_token_count = int(input_ids.shape[-1])
+        # 2) 토크나이즈 후 모델 디바이스로 이동
+        model_inputs = self.tokenizer([text], return_tensors="pt").to(self.model.device)
+        input_token_count = int(model_inputs["input_ids"].shape[-1])
 
-        output_ids = self.model.generate(input_ids, **self._gen_kwargs())
+        # 3) 생성
+        output_ids = self.model.generate(**model_inputs, **self._gen_kwargs())
 
-        # 입력 길이 이후의 새 토큰만 출력으로 분리
+        # 4) 입력 길이 이후의 새 토큰만 출력으로 분리
         gen_ids = output_ids[0][input_token_count:]
         output_token_count = int(gen_ids.shape[-1])
         output_text = self.tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
