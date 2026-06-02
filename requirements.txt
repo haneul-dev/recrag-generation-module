@@ -1,0 +1,14 @@
+# RECRAG Step 8~9 생성 모듈 — Raw Context Baseline (1차)
+# Colab paid GPU 환경 기준. Colab에는 torch가 이미 설치되어 있는 경우가 많으므로
+# torch는 환경에 맞춰 선택 설치한다(README 참고).
+
+transformers>=4.45.0      # Qwen2.5-7B-Instruct chat template 지원 버전
+accelerate>=0.34.0        # device_map="auto" 로딩
+bitsandbytes>=0.43.0      # 4bit/8bit quantization (VRAM 부족 시)
+sentencepiece>=0.2.0      # 토크나이저 의존성
+pyyaml>=6.0               # config 로드
+pandas>=2.0.0             # JSONL -> CSV 파생
+
+# torch 는 Colab 기본 설치본을 사용하는 것을 권장한다.
+# 별도 설치가 필요하면 CUDA 버전에 맞춰 설치한다. 예:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121

@@ -1,0 +1,57 @@
+# RECRAG Step 8~9 생성 모듈 실험 설정 — Raw Context Baseline (1차 최소 실행 버전)
+# 상위 기준 문서들의 확정값(2026-06-02)을 1차 실행 범위로 축소해 옮긴 것이다.
+# 1차에서 제외: Structured / prompt_type 비교 / top_k sweep / 사람평가 / LLM-as-Judge.
+
+meta:
+  project: RECRAG
+  module: generation          # Step 8~9 생성/설명 모듈
+  scope: step_8_9             # 검색·재정렬(Step 5~7)은 선행 모듈 전제(고정 스냅샷 입력)
+  phase: raw_baseline
+  config_version: "0.1-raw-baseline"
+  last_updated: "2026-06-02"
+
+# 1. 생성 LLM 및 디코딩 파라미터
+model:
+  llm_name: "Qwen2.5-7B-Instruct"       # [기준 모델]
+  hf_model_id: "Qwen/Qwen2.5-7B-Instruct"
+  temperature: 0.0                       # greedy decoding
+  top_p: 1.0
+  max_output_tokens: 512
+  repetition_penalty: 1.05               # 또는 모델 기본값
+  stop_sequence: null                    # 우선 미사용
+  streaming: false                       # 기본 실험은 비스트리밍 (t4 = 전체 출력 수신 완료)
+  quantization: "none"                   # none | 4bit | 8bit  (VRAM 부족 시 4bit/8bit)
+  # [확인 필요] greedy(0.0)/repetition_penalty 미지원 시 근접 결정적 디코딩으로 대체하고 로그에 명시
+
+# 2. 프롬프트 설정 (1차 고정)
+prompt:
+  context_type: "raw"                    # [1차 고정] raw_chunk 만 사용 (structured 제외)
+  prompt_type: "groundedness"            # [1차 고정] 기본 운용 프롬프트
+  few_shot_count: 2                      # 정상 1 + 근거부족 1
+  few_shot_language: "ko"
+  delimiters:                            # 파싱 기준 (고정)
+    answer: "<<<ANSWER>>>"
+    evidence: "<<<EVIDENCE>>>"
+    groundedness_note: "<<<GROUNDEDNESS_NOTE>>>"
+
+# 3. 컨텍스트 구성
+context:
+  top_k_input: 5                         # [1차 고정] top_k=5
+
+# 4. 실험 실행
+experiment:
+  repeats: 3                             # 동일 설정 측정 반복 (중앙값 분석용)
+  warmup_runs: 1                         # 첫 1회 warm-up, 집계 제외(is_warmup=true)
+  query_language: "ko"                   # [1차 고정] 한국어
+
+# 5. 데이터
+data:
+  eval_set_path: "data/eval_set.sample.jsonl"
+  experiment_id: "EXP-GEN-RAW-001"
+
+# 6. 로깅
+logging:
+  jsonl_path: "outputs/generation_results.jsonl"
+  csv_path: "outputs/generation_results.csv"
+  clock: "monotonic"                     # latency 계산용
+  save_final_prompt_text: false          # 기본 hash만. true면 전문도 저장(디버깅용)

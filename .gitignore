@@ -1,0 +1,31 @@
+# ── 실행 산출물 (결과는 Colab/로컬에서 생성, repo에 올리지 않음) ──
+outputs/
+*.log
+*.tmp
+
+# ── Python 캐시 ──
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# ── Jupyter / Colab ──
+.ipynb_checkpoints/
+
+# ── 비밀정보 (절대 커밋 금지) ──
+.env
+.env.*
+*.key
+*token*
+hf_token.txt
+
+# ── OS / 에디터 ──
+.DS_Store
+.vscode/
+.idea/
+
+# ── 모델/대용량 캐시 (혹시 로컬 다운로드 시) ──
+.cache/
+models/
+*.bin
+*.safetensors
