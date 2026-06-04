@@ -127,6 +127,39 @@ print(df[(df.query_id=="V001") & (~df.is_warmup)][
 
 ---
 
+## 9. eval set 검증 + interim 예비 실행
+
+### 9-1. 본 실행 전 eval set 검증 (스키마/라벨 품질)
+두 방법 중 하나. FAIL 이면 종료코드 1.
+```bash
+# A안: run_generation 의 --validate-only (모델 로드 안 함)
+!python src/run_generation.py --config generation_experiment_config.yaml \
+    --eval-set data/eval_set.interim.jsonl --validate-only
+
+# B안: standalone 스크립트
+!python src/validate_eval_set.py --eval-set data/eval_set.interim.jsonl
+```
+> 결과가 `FAIL` 이면 출력된 `✗` 항목을 고친 뒤 실행한다. `WARN` 은 interim 예비에서는 대개 허용.
+
+### 9-2. interim 본 실행
+```bash
+!python src/run_generation.py \
+  --config generation_experiment_config.yaml \
+  --eval-set data/eval_set.interim.jsonl \
+  --run-tag rawbase_interim_4bit_20260604 \
+  --experiment-id EXP-GEN-RAWBASE-INTERIM-001
+```
+생성 산출물(`--run-tag` 로 분리):
+- `outputs/generation_results.rawbase_interim_4bit_20260604.jsonl`
+- `outputs/generation_results.rawbase_interim_4bit_20260604.csv`
+- `outputs/run_metadata.rawbase_interim_4bit_20260604.json`
+
+> ⚠️ interim 데이터는 정식 검색 스냅샷이 아니다. `--run-tag`(rawbase_**interim**_…)와
+> `--experiment-id`(EXP-GEN-RAWBASE-**INTERIM**-001)로 정식 실행과 반드시 구분한다.
+> 이 두 옵션은 config 기본값을 건드리지 않고 이번 실행에만 적용된다(정식 실행용 config 보존).
+
+---
+
 ## 참고
 - `is_warmup=True` 행은 cold start이므로 **latency 집계에서 제외**한다.
 - **deterministic abstain**(content 전무 → LLM 미호출, `row_kind=deterministic_abstain`) 행도

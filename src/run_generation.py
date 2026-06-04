@@ -222,11 +222,24 @@ def main():
                         help="지정 query_id 의 생성에서 강제 오류 발생(error 경로 검증용)")
     parser.add_argument("--run-tag", default=None,
                         help="출력 파일명 접미사(예: verify) — 본 실행 산출물과 분리 저장")
+    parser.add_argument("--validate-only", action="store_true",
+                        help="모델 로드 없이 eval set 스키마/라벨 품질만 점검하고 종료")
+    parser.add_argument("--experiment-id", default=None,
+                        help="experiment_id override (예: interim 실행 구분용)")
     args = parser.parse_args()
 
     cfg = config_loader.load_config(args.config)
     if args.eval_set:
         cfg["data"]["eval_set_path"] = os.path.abspath(args.eval_set)
+    if args.experiment_id:
+        cfg["data"]["experiment_id"] = args.experiment_id
+
+    # ── A안: 검증만 수행 후 종료 (모델 로드 안 함) ──
+    if args.validate_only:
+        import validate_eval_set as ves
+        result = ves.validate_eval_set(cfg["data"]["eval_set_path"])
+        ves.print_report(result, cfg["data"]["eval_set_path"])
+        sys.exit(1 if result["status"] == "FAIL" else 0)
     print(f"[config] {args.config}")
     print(f"[config] model={cfg['model']['hf_model_id']} "
           f"quantization={cfg['model'].get('quantization') or 'none'} "
