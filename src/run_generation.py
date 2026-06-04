@@ -43,8 +43,12 @@ def _prompt_hash(messages: list[dict]) -> str:
 
 def _base_record(cfg, query, filt, run_id, is_warmup) -> dict:
     """식별/입력 공통 컬럼."""
+    prov = cfg.get("_provenance", {})
     return {
         "experiment_id": cfg["data"].get("experiment_id", "EXP-GEN-RAW-001"),
+        "run_tag": prov.get("run_tag"),
+        "snapshot_source": prov.get("snapshot_source"),
+        "is_interim": prov.get("is_interim"),
         "run_id": run_id,
         "is_warmup": is_warmup,
         "query_id": query["query_id"],
@@ -192,12 +196,26 @@ def run_one(cfg, runner, query, filt, run_id, is_warmup, force_error=False) -> d
     return rec
 
 
-def _tagged(path: str, tag: str | None) -> str:
-    """run-tag 가 있으면 파일명에 .<tag> 를 삽입한다 (검증 실행 산출물 분리용)."""
-    if not tag:
-        return path
-    base, ext = os.path.splitext(path)
-    return f"{base}.{tag}{ext}"
+def _parse_bool(s):
+    """문자열 true/false 를 bool 로. None 이면 None 반환(미지정)."""
+    if s is None:
+        return None
+    return str(s).strip().lower() in ("true", "1", "yes", "y")
+
+
+def _output_paths(cfg, run_tag: str | None) -> tuple[str, str, str]:
+    """run_tag 별 출력 디렉터리를 분리한다.
+
+    run_tag 있으면 : outputs/<run_tag>/{generation_results.jsonl,csv, run_metadata.json}
+    run_tag 없으면 : outputs/{generation_results.jsonl,csv, run_metadata.json} (기존 위치)
+    → interim/full 산출물이 섞이거나 덮어쓰이지 않는다.
+    """
+    base_dir = os.path.dirname(cfg["logging"]["jsonl_path"])  # outputs/ (절대경로)
+    out_dir = os.path.join(base_dir, run_tag) if run_tag else base_dir
+    jsonl_path = os.path.join(out_dir, "generation_results.jsonl")
+    csv_path = os.path.join(out_dir, "generation_results.csv")
+    meta_path = os.path.join(out_dir, "run_metadata.json")
+    return jsonl_path, csv_path, meta_path
 
 
 def _quantization_effective(q: str) -> str:
@@ -226,6 +244,10 @@ def main():
                         help="모델 로드 없이 eval set 스키마/라벨 품질만 점검하고 종료")
     parser.add_argument("--experiment-id", default=None,
                         help="experiment_id override (예: interim 실행 구분용)")
+    parser.add_argument("--snapshot-source", default=None,
+                        help="retrieved_chunks 출처 표기(예: interim_manual / retrieval_topk_v1)")
+    parser.add_argument("--is-interim", default=None,
+                        help="interim 예비 실행 여부 (true/false). 미지정 시 run_tag 로 추론")
     args = parser.parse_args()
 
     cfg = config_loader.load_config(args.config)
@@ -233,6 +255,17 @@ def main():
         cfg["data"]["eval_set_path"] = os.path.abspath(args.eval_set)
     if args.experiment_id:
         cfg["data"]["experiment_id"] = args.experiment_id
+
+    # ── provenance 결정 (interim/full 오인 방지) ──
+    is_interim = _parse_bool(args.is_interim)
+    if is_interim is None:  # 미지정 시 run_tag 에 'interim' 포함 여부로 추론
+        is_interim = bool(args.run_tag and "interim" in args.run_tag.lower())
+    snapshot_source = args.snapshot_source or ("interim_manual" if is_interim else "unspecified")
+    cfg["_provenance"] = {
+        "run_tag": args.run_tag,
+        "snapshot_source": snapshot_source,
+        "is_interim": is_interim,
+    }
 
     # ── A안: 검증만 수행 후 종료 (모델 로드 안 함) ──
     if args.validate_only:
@@ -267,13 +300,12 @@ def main():
     warmup_runs = int(cfg["experiment"]["warmup_runs"])
     repeats = int(cfg["experiment"]["repeats"])
 
-    # 출력 경로 (run-tag 있으면 분리)
-    jsonl_path = _tagged(cfg["logging"]["jsonl_path"], args.run_tag)
-    csv_path = _tagged(cfg["logging"]["csv_path"], args.run_tag)
-    meta_path = _tagged(
-        os.path.join(os.path.dirname(jsonl_path), "run_metadata.json"), args.run_tag
-    )
+    # 출력 경로 (run-tag 별 디렉터리 분리)
+    jsonl_path, csv_path, meta_path = _output_paths(cfg, args.run_tag)
     ll.init_jsonl(jsonl_path)
+    prov = cfg["_provenance"]
+    print(f"[prov] is_interim={prov['is_interim']} snapshot_source={prov['snapshot_source']} "
+          f"run_tag={prov['run_tag']} experiment_id={cfg['data'].get('experiment_id')}")
     print(f"[save] incremental JSONL -> {jsonl_path}")
     if args.force_error_on:
         print(f"[verify] force-error-on = {args.force_error_on} (error 경로 검증 모드)")
@@ -327,6 +359,8 @@ def main():
     metadata = {
         "experiment_id": cfg["data"].get("experiment_id"),
         "run_tag": args.run_tag,
+        "snapshot_source": cfg["_provenance"]["snapshot_source"],
+        "is_interim": cfg["_provenance"]["is_interim"],
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "llm_model": cfg["model"]["llm_name"],
         "hf_model_id": cfg["model"]["hf_model_id"],

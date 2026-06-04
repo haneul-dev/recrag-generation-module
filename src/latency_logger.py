@@ -115,7 +115,8 @@ def append_jsonl(record: dict, path: str) -> None:
 
 # CSV 평탄화 컬럼 (latency_logging_schema §6.3)
 CSV_COLUMNS = [
-    "experiment_id", "run_id", "is_warmup", "status", "row_kind", "llm_invoked",
+    "experiment_id", "run_tag", "snapshot_source", "is_interim",
+    "run_id", "is_warmup", "status", "row_kind", "llm_invoked",
     "query_id", "llm_model", "quantization",
     "context_type", "prompt_type", "top_k_input",
     "input_token_count", "output_token_count",

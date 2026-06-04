@@ -127,7 +127,20 @@ login()   # 입력창에 토큰을 붙여넣는다
 | `outputs/run_metadata.json` | 실행 메타데이터: **quantization / device(GPU명) / peak_vram_gb / decoding_params / latency 요약 / row 종류별 카운트** |
 
 > `outputs/` 는 `.gitignore` 대상이라 repo에 올라가지 않으며, 실행 시 자동 생성된다.
-> `--run-tag <name>` 을 주면 산출물이 `*.<name>.*` 로 분리 저장된다(검증 실행용).
+> **`--run-tag <name>` 을 주면 산출물이 `outputs/<name>/` 디렉터리로 분리 저장된다**
+> (interim/full 결과가 섞이거나 덮어쓰이지 않음). run_tag 없으면 `outputs/` 루트에 저장.
+
+### provenance (interim/full 오인 방지)
+결과 파일이 단독으로 공유돼도 출처가 분명하도록 **모든 row 와 `run_metadata.json`** 에 기록:
+
+| 필드 | 의미 |
+|---|---|
+| `snapshot_source` | retrieved_chunks 출처 (`interim_manual` / `retrieval_topk_v1` 등) |
+| `is_interim` | interim 예비 실행이면 `true`, 정식이면 `false` |
+| `run_tag` | 이번 실행 태그 |
+| `experiment_id` | 실험 식별자 (예: `EXP-GEN-RAWBASE-INTERIM-001`) |
+
+> `--snapshot-source` / `--is-interim` 미지정 시 `run_tag` 에 `interim` 포함 여부로 자동 추론된다.
 
 ### latency 집계 규칙 (중요)
 generation latency 통계(중앙값/p95 등)는 **`row_kind=llm_success` 이고 측정(warmup 제외) 행만** 사용한다.

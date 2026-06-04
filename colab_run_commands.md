@@ -103,7 +103,7 @@ df[["query_id","run_id","is_warmup","generation_latency_ms",
 ```
 ```python
 import pandas as pd
-df = pd.read_csv("outputs/generation_results.verify_error.csv")
+df = pd.read_csv("outputs/verify_error/generation_results.csv")
 print(df[df.query_id=="V002"][["query_id","run_id","status","row_kind","error_type","error_message"]].head())
 # 기대: V002 의 row_kind=llm_error, status=error, error_message 채워짐
 ```
@@ -115,15 +115,15 @@ print(df[df.query_id=="V002"][["query_id","run_id","status","row_kind","error_ty
 ```
 ```python
 import pandas as pd
-df = pd.read_csv("outputs/generation_results.verify_abstain.csv")
+df = pd.read_csv("outputs/verify_abstain/generation_results.csv")
 print(df[(df.query_id=="V001") & (~df.is_warmup)][
     ["query_id","row_kind","llm_invoked","input_token_count","groundedness_note","cited_chunk_ids"]].head())
 # 기대: V001 row_kind=llm_success, llm_invoked=True, input_token_count>0,
 #        groundedness_note="근거 부족"(모델이 추측 없이 기권)
 ```
 
-> 검증 산출물은 `--run-tag` 덕분에 `*.verify_error.*` / `*.verify_abstain.*` 로 분리 저장되어
-> 본 실행 결과(`generation_results.jsonl/csv`)를 덮어쓰지 않는다.
+> 검증 산출물은 `--run-tag` 별 **디렉터리**(`outputs/verify_error/`, `outputs/verify_abstain/`)에
+> 분리 저장되어 본 실행 결과를 덮어쓰지 않는다.
 
 ---
 
@@ -147,16 +147,31 @@ print(df[(df.query_id=="V001") & (~df.is_warmup)][
   --config generation_experiment_config.yaml \
   --eval-set data/eval_set.interim.jsonl \
   --run-tag rawbase_interim_4bit_20260604 \
-  --experiment-id EXP-GEN-RAWBASE-INTERIM-001
+  --experiment-id EXP-GEN-RAWBASE-INTERIM-001 \
+  --snapshot-source interim_manual \
+  --is-interim true
 ```
-생성 산출물(`--run-tag` 로 분리):
-- `outputs/generation_results.rawbase_interim_4bit_20260604.jsonl`
-- `outputs/generation_results.rawbase_interim_4bit_20260604.csv`
-- `outputs/run_metadata.rawbase_interim_4bit_20260604.json`
+생성 산출물(`--run-tag` 별 **디렉터리** 분리):
+- `outputs/rawbase_interim_4bit_20260604/generation_results.jsonl`
+- `outputs/rawbase_interim_4bit_20260604/generation_results.csv`
+- `outputs/rawbase_interim_4bit_20260604/run_metadata.json`
 
-> ⚠️ interim 데이터는 정식 검색 스냅샷이 아니다. `--run-tag`(rawbase_**interim**_…)와
-> `--experiment-id`(EXP-GEN-RAWBASE-**INTERIM**-001)로 정식 실행과 반드시 구분한다.
-> 이 두 옵션은 config 기본값을 건드리지 않고 이번 실행에만 적용된다(정식 실행용 config 보존).
+정식 실행 예(검색 스냅샷 준비 후):
+```bash
+!python src/run_generation.py \
+  --config generation_experiment_config.yaml \
+  --eval-set data/eval_set.jsonl \
+  --run-tag rawbase_full_4bit_20260604 \
+  --experiment-id EXP-GEN-RAWBASE-001 \
+  --snapshot-source retrieval_topk_v1 \
+  --is-interim false
+```
+
+> ⚠️ interim 데이터는 정식 검색 스냅샷이 아니다. 결과 파일이 단독으로 공유돼도 오인되지 않도록
+> **모든 row 와 run_metadata 에 provenance(`snapshot_source`, `is_interim`, `run_tag`, `experiment_id`)** 가 기록된다.
+> `--snapshot-source`/`--is-interim` 을 생략해도 `run_tag` 에 `interim` 이 포함되면
+> 자동으로 `is_interim=true`, `snapshot_source=interim_manual` 로 설정된다.
+> 이 옵션들은 config 기본값을 건드리지 않고 이번 실행에만 적용된다.
 
 ---
 
