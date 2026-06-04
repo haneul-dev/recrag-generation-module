@@ -122,10 +122,23 @@ login()   # 입력창에 토큰을 붙여넣는다
 
 | 파일 | 설명 |
 |---|---|
-| `outputs/generation_results.jsonl` | **1차 저장**. 1행 = (query × run) 1건. 타임스탬프·인용·latency 전 필드 포함 |
+| `outputs/generation_results.jsonl` | **1차 저장**. 1행 = (query × run) 1건. run 단위로 즉시 append(중간 중단 시 유실 방지) |
 | `outputs/generation_results.csv` | 분석용 파생(평탄화). 배열 컬럼은 `"C001;C004"` 형태로 직렬화 |
+| `outputs/run_metadata.json` | 실행 메타데이터: **quantization / device(GPU명) / peak_vram_gb / decoding_params / latency 요약 / row 종류별 카운트** |
 
 > `outputs/` 는 `.gitignore` 대상이라 repo에 올라가지 않으며, 실행 시 자동 생성된다.
+> `--run-tag <name>` 을 주면 산출물이 `*.<name>.*` 로 분리 저장된다(검증 실행용).
+
+### latency 집계 규칙 (중요)
+generation latency 통계(중앙값/p95 등)는 **`row_kind=llm_success` 이고 측정(warmup 제외) 행만** 사용한다.
+다음 행은 LLM latency 집계에서 **제외**된다:
+- `is_warmup=true` (cold start)
+- `row_kind=deterministic_abstain` (content 전무 → **LLM 미호출** 기권, `llm_invoked=false`)
+- `row_kind=llm_error` (생성 중 오류)
+
+> 참고: content가 있는데 **모델이 스스로** "근거 부족"을 출력한 경우(model-driven abstain)는
+> `row_kind=llm_success`, `llm_invoked=true`, `input_token_count>0` 이므로 latency 집계에 **포함**된다.
+> (deterministic abstain과 구분됨)
 
 ---
 
@@ -143,6 +156,10 @@ login()   # 입력창에 토큰을 붙여넣는다
 | `evidence_block_chunk_ids` | `<<<EVIDENCE>>>` 블록의 ID |
 | `inline_evidence_set_match` | 인라인 집합 == Evidence 집합 일치 여부 |
 | `content_missing_chunk_count` | content 없어 컨텍스트에서 제외된 chunk 수 |
+| `status` | `success` / `error` |
+| `row_kind` | `llm_success` / `llm_error` / `deterministic_abstain` (집계 구분 기준) |
+| `llm_invoked` | LLM 실제 호출 여부 (deterministic abstain은 `false`) |
+| `quantization` | 이번 실행의 양자화 설정 (none / 4bit / 8bit) |
 
 > `is_warmup=True` 행은 cold start이므로 **latency 집계에서 제외**한다.
 

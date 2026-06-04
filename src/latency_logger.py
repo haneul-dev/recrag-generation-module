@@ -115,7 +115,8 @@ def append_jsonl(record: dict, path: str) -> None:
 
 # CSV 평탄화 컬럼 (latency_logging_schema §6.3)
 CSV_COLUMNS = [
-    "experiment_id", "run_id", "is_warmup", "status", "query_id", "llm_model",
+    "experiment_id", "run_id", "is_warmup", "status", "row_kind", "llm_invoked",
+    "query_id", "llm_model", "quantization",
     "context_type", "prompt_type", "top_k_input",
     "input_token_count", "output_token_count",
     "context_formatting_latency_ms", "generation_latency_ms",
@@ -146,3 +147,74 @@ def write_csv(records: list[dict], path: str) -> None:
             row[col] = val
         rows.append(row)
     pd.DataFrame(rows, columns=CSV_COLUMNS).to_csv(path, index=False, encoding="utf-8-sig")
+
+
+def write_json(obj: dict, path: str) -> None:
+    """run metadata 등 단일 JSON 객체 저장."""
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(obj, f, ensure_ascii=False, indent=2)
+
+
+# ── 집계 헬퍼 ────────────────────────────────────────────────
+def _percentile(values: list[float], q: float) -> float | None:
+    """선형 보간 백분위수(q=0~100). values 는 비어있지 않다고 가정."""
+    if not values:
+        return None
+    xs = sorted(values)
+    if len(xs) == 1:
+        return xs[0]
+    pos = (q / 100.0) * (len(xs) - 1)
+    lo = int(pos)
+    frac = pos - lo
+    if lo + 1 < len(xs):
+        return xs[lo] + (xs[lo + 1] - xs[lo]) * frac
+    return xs[lo]
+
+
+def summarize_generation_latency(records: list[dict]) -> dict:
+    """LLM 호출 성공 + 측정(warmup 제외) row 만으로 latency 통계를 낸다.
+
+    deterministic abstain(LLM 미호출) / error / warmup row 는 latency 집계에서 제외하고,
+    개수는 별도로 센다.
+    """
+    measured = [
+        r for r in records
+        if not r.get("is_warmup")
+        and r.get("row_kind") == "llm_success"
+        and r.get("generation_latency_ms") is not None
+    ]
+    gen_lats = [r["generation_latency_ms"] for r in measured]
+    fmt_flags = [bool(r.get("format_compliance")) for r in measured]
+
+    counts = {
+        "total_rows": len(records),
+        "warmup_rows": sum(1 for r in records if r.get("is_warmup")),
+        "llm_success": sum(1 for r in records if r.get("row_kind") == "llm_success"),
+        "llm_error": sum(1 for r in records if r.get("row_kind") == "llm_error"),
+        "deterministic_abstain": sum(
+            1 for r in records if r.get("row_kind") == "deterministic_abstain"
+        ),
+    }
+
+    if gen_lats:
+        import statistics as _st
+        latency_summary = {
+            "n": len(gen_lats),
+            "median_ms": round(_st.median(gen_lats), 1),
+            "mean_ms": round(_st.fmean(gen_lats), 1),
+            "p95_ms": round(_percentile(gen_lats, 95), 1),
+            "min_ms": round(min(gen_lats), 1),
+            "max_ms": round(max(gen_lats), 1),
+        }
+    else:
+        latency_summary = {"n": 0, "median_ms": None, "mean_ms": None,
+                           "p95_ms": None, "min_ms": None, "max_ms": None}
+
+    fmt_rate = round(sum(fmt_flags) / len(fmt_flags) * 100, 1) if fmt_flags else None
+
+    return {
+        "counts": counts,
+        "latency_summary_llm_success_measured": latency_summary,
+        "format_compliance_rate_measured_pct": fmt_rate,
+    }
