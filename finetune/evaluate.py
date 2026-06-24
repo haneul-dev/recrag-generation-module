@@ -94,6 +94,28 @@ def _mean(xs: list[float]) -> float:
 # ─────────────────────────────────────────────────────────────
 # 평가 실행
 # ─────────────────────────────────────────────────────────────
+def _build_model_cfg(cfg: dict, repo_root: str, adapter: str | None) -> dict:
+    """추론 모델 설정 구성.
+
+    모델/디코딩 설정의 정본은 generation_experiment_config.yaml 의 model 섹션이다.
+    (finetune_config.yaml 엔 학습용 train 섹션만 있고 추론용 model 섹션은 없다.)
+    없으면 finetune 의 base_model + 결정적 디코딩 기본값으로 보정한다.
+    """
+    gen_path = os.path.join(repo_root, "generation_experiment_config.yaml")
+    mcfg = {}
+    if os.path.exists(gen_path):
+        gcfg = yaml.safe_load(open(gen_path, encoding="utf-8")) or {}
+        mcfg = dict(gcfg.get("model", {}))
+    mcfg.setdefault("hf_model_id", cfg.get("train", {}).get("base_model", "Qwen/Qwen2.5-7B-Instruct"))
+    mcfg.setdefault("temperature", 0.0)
+    mcfg.setdefault("top_p", 1.0)
+    mcfg.setdefault("max_output_tokens", 512)
+    mcfg["quantization"] = "4bit"
+    if adapter:
+        mcfg["adapter_path"] = adapter
+    return mcfg
+
+
 def run_eval(cfg: dict, repo_root: str, test_path: str, adapter: str | None,
              tag: str, warmup: int, results_dir: str) -> dict:
     from data_loader import load_eval_set, filter_chunks
@@ -101,10 +123,7 @@ def run_eval(cfg: dict, repo_root: str, test_path: str, adapter: str | None,
     from output_parser import parse_generation_output
     from llm_runner import LLMRunner
 
-    mcfg = dict(cfg["model"])
-    mcfg["quantization"] = "4bit"
-    if adapter:
-        mcfg["adapter_path"] = adapter
+    mcfg = _build_model_cfg(cfg, repo_root, adapter)
     runner = LLMRunner({"model": mcfg}).load()
 
     rows = load_eval_set(test_path)
