@@ -20,9 +20,11 @@ NOTE_DELIM = "<<<GROUNDEDNESS_NOTE>>>"
 
 GROUNDEDNESS_ALLOWED = {"제공된 근거 문서에 기반함", "일부 근거 부족", "근거 부족"}
 
-# 인라인 인용 [C001] / Evidence 줄의 Chunk ID 추출용
-_INLINE_RE = re.compile(r"\[(C\d+)\]")
-_EVIDENCE_ID_RE = re.compile(r"Chunk\s*ID\s*:\s*(C\d+)", re.IGNORECASE)
+# 인라인 인용 [C001] / Evidence 줄의 Chunk ID 추출용.
+# chunk_id 스킴이 C001 뿐 아니라 T01_C1, A03_C2 처럼 접두사+밑줄도 가능하므로
+# 영숫자/밑줄 토큰을 일반적으로 매칭한다(cited ⊆ used 검증이 오매칭을 걸러낸다).
+_INLINE_RE = re.compile(r"\[([A-Za-z0-9_]+)\]")
+_EVIDENCE_ID_RE = re.compile(r"Chunk\s*ID\s*:\s*([A-Za-z0-9_]+)", re.IGNORECASE)
 
 
 def _extract_block(text: str, start_delim: str, next_delims: list[str]) -> str | None:
