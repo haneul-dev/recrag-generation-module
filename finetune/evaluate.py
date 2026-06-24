@@ -139,7 +139,8 @@ def run_eval(cfg: dict, repo_root: str, test_path: str, adapter: str | None,
     per_example, ans_metrics, abs_metrics = [], [], []
     latencies, in_toks, out_toks = [], [], []
 
-    for row in rows:
+    for ri, row in enumerate(rows):
+        print(f"  [{tag}] {ri+1}/{len(rows)} {row.get('query_id')} ...", flush=True)
         f = filter_chunks(row["retrieved_chunks"])
         used_ids = f["used_chunk_ids"]
         msgs = build_messages(row["query"], f["used_chunks"], fewshot=fewshot)
