@@ -45,14 +45,18 @@ def make_tokenize_fn(tokenizer, max_len: int):
 
     def _fn(example):
         messages = example["messages"]
-        # 프롬프트(=마지막 assistant 직전까지) + 생성 프롬프트 토큰
-        prompt_ids = tokenizer.apply_chat_template(
-            messages[:-1], tokenize=True, add_generation_prompt=True,
+        # chat 템플릿을 '문자열'로 먼저 받는다 (tokenize=True가 버전에 따라
+        # tokenizers.Encoding 객체를 반환해 Arrow 직렬화가 깨지는 문제 회피).
+        prompt_text = tokenizer.apply_chat_template(
+            messages[:-1], tokenize=False, add_generation_prompt=True,
         )
-        # 전체(프롬프트 + assistant 정답)
-        full_ids = tokenizer.apply_chat_template(
-            messages, tokenize=True, add_generation_prompt=False,
+        full_text = tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=False,
         )
+        # 템플릿이 이미 특수토큰을 포함하므로 add_special_tokens=False.
+        # 정수 리스트(list[int])로 보장.
+        prompt_ids = tokenizer(prompt_text, add_special_tokens=False)["input_ids"]
+        full_ids = tokenizer(full_text, add_special_tokens=False)["input_ids"]
         full_ids = full_ids[:max_len]
         labels = list(full_ids)
         # 프롬프트 구간 마스킹
