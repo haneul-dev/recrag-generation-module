@@ -100,16 +100,21 @@ def build_user_message(query: str, used_chunks: list[dict]) -> str:
     return f"[User Query]\n{query}\n\n{context_block}"
 
 
-def build_messages(query: str, used_chunks: list[dict]) -> list[dict]:
-    """ChatML messages 구성: system -> few-shot(user/assistant) -> user.
+def build_messages(query: str, used_chunks: list[dict], fewshot: bool = True) -> list[dict]:
+    """ChatML messages 구성: system -> (few-shot) -> user.
 
+    fewshot=True  : system + few-shot 2개 + user (기존 추론 기본값)
+    fewshot=False : system + user (zero-shot). 파인튜닝 모델 평가용 —
+                    파인튜닝은 few-shot 없이 형식을 학습하므로 zero-shot 이 정합적이다.
     apply_chat_template 에 그대로 넘길 수 있는 role/content 리스트를 반환한다.
     """
-    return [
-        {"role": "system", "content": SYSTEM_INSTRUCTION},
-        {"role": "user", "content": FEWSHOT_USER_1},
-        {"role": "assistant", "content": FEWSHOT_ASSISTANT_1},
-        {"role": "user", "content": FEWSHOT_USER_2},
-        {"role": "assistant", "content": FEWSHOT_ASSISTANT_2},
-        {"role": "user", "content": build_user_message(query, used_chunks)},
-    ]
+    msgs = [{"role": "system", "content": SYSTEM_INSTRUCTION}]
+    if fewshot:
+        msgs += [
+            {"role": "user", "content": FEWSHOT_USER_1},
+            {"role": "assistant", "content": FEWSHOT_ASSISTANT_1},
+            {"role": "user", "content": FEWSHOT_USER_2},
+            {"role": "assistant", "content": FEWSHOT_ASSISTANT_2},
+        ]
+    msgs.append({"role": "user", "content": build_user_message(query, used_chunks)})
+    return msgs

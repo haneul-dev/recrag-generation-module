@@ -117,7 +117,7 @@ def _build_model_cfg(cfg: dict, repo_root: str, adapter: str | None) -> dict:
 
 
 def run_eval(cfg: dict, repo_root: str, test_path: str, adapter: str | None,
-             tag: str, warmup: int, results_dir: str) -> dict:
+             tag: str, warmup: int, results_dir: str, fewshot: bool = True) -> dict:
     from data_loader import load_eval_set, filter_chunks
     from prompt_builder import build_messages
     from output_parser import parse_generation_output
@@ -132,19 +132,22 @@ def run_eval(cfg: dict, repo_root: str, test_path: str, adapter: str | None,
     for _ in range(max(0, warmup)):
         if rows:
             f = filter_chunks(rows[0]["retrieved_chunks"])
-            runner.generate(build_messages(rows[0]["query"], f["used_chunks"]))
+            runner.generate(build_messages(rows[0]["query"], f["used_chunks"], fewshot=fewshot))
 
-    per_example, ans_metrics, abs_metrics, latencies = [], [], [], []
+    per_example, ans_metrics, abs_metrics = [], [], []
+    latencies, in_toks, out_toks = [], [], []
 
     for row in rows:
         f = filter_chunks(row["retrieved_chunks"])
         used_ids = f["used_chunk_ids"]
-        msgs = build_messages(row["query"], f["used_chunks"])
+        msgs = build_messages(row["query"], f["used_chunks"], fewshot=fewshot)
 
         t0 = time.monotonic()
         gen = runner.generate(msgs)
         lat_ms = (time.monotonic() - t0) * 1000.0
         latencies.append(lat_ms)
+        in_toks.append(gen["input_token_count"])
+        out_toks.append(gen["output_token_count"])
 
         parsed = parse_generation_output(gen["output_text"], used_ids)
         is_abs = _is_abstain_row(row)
@@ -182,7 +185,10 @@ def run_eval(cfg: dict, repo_root: str, test_path: str, adapter: str | None,
     n_ans, n_abs = len(ans_metrics), len(abs_metrics)
     summary = {
         "tag": tag, "adapter": adapter, "test_path": test_path,
+        "prompt_mode": "fewshot" if fewshot else "zeroshot",
         "n_total": len(rows), "n_answerable": n_ans, "n_abstain": n_abs,
+        "mean_input_tokens": round(_mean(in_toks), 1),
+        "mean_output_tokens": round(_mean(out_toks), 1),
         "latency_ms": {"p50": round(_pct(latencies, 0.5), 1),
                        "p95": round(_pct(latencies, 0.95), 1),
                        "mean": round(_mean(latencies), 1)},
@@ -230,8 +236,14 @@ def _row(label, base, ft, fmt="{:.4f}"):
 def compare(base_json: str, ft_json: str) -> None:
     b = json.load(open(base_json, encoding="utf-8"))
     f = json.load(open(ft_json, encoding="utf-8"))
-    print(f"\n# base vs 파인튜닝 비교 (held-out test, n={b['n_total']})\n")
-    print("## 답가능")
+    print(f"\n# 비교: {b['tag']} ({b.get('prompt_mode','?')}) vs {f['tag']} ({f.get('prompt_mode','?')})"
+          f" — held-out test, n={b['n_total']}\n")
+    print("## 프롬프트/토큰")
+    print("| 지표 | base | 파인튜닝 | Δ |")
+    print("|---|---|---|---|")
+    print(_row("mean_input_tokens", b.get("mean_input_tokens", 0), f.get("mean_input_tokens", 0), fmt="{:.1f}"))
+    print(_row("mean_output_tokens", b.get("mean_output_tokens", 0), f.get("mean_output_tokens", 0), fmt="{:.1f}"))
+    print("\n## 답가능")
     print("| 지표 | base | 파인튜닝 | Δ |")
     print("|---|---|---|---|")
     for k in ["answer_token_f1", "answer_char_f1", "citation_precision", "citation_recall",
@@ -255,6 +267,8 @@ def main():
     ap.add_argument("--test", default=None, help="test jsonl 경로 (기본: config eval.test_path)")
     ap.add_argument("--adapter", default=None, help="LoRA 어댑터 경로(없으면 base)")
     ap.add_argument("--tag", default="base")
+    ap.add_argument("--prompt", choices=["fewshot", "zeroshot"], default="zeroshot",
+                    help="평가 프롬프트 모드. 파인튜닝 모델은 zeroshot 이 정합적.")
     ap.add_argument("--warmup", type=int, default=None)
     ap.add_argument("--compare", nargs=2, metavar=("BASE_JSON", "FT_JSON"))
     args = ap.parse_args()
@@ -276,7 +290,8 @@ def main():
     warmup = args.warmup if args.warmup is not None else int(ecfg.get("warmup", 1))
     adapter = _abs(args.adapter) if args.adapter else None
 
-    run_eval(cfg, repo_root, test_path, adapter, args.tag, warmup, results_dir)
+    run_eval(cfg, repo_root, test_path, adapter, args.tag, warmup, results_dir,
+             fewshot=(args.prompt == "fewshot"))
 
 
 if __name__ == "__main__":
