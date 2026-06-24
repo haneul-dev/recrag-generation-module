@@ -1,0 +1,73 @@
+{
+  "created_utc": "2026-06-24T12:30:15.846674+00:00",
+  "git_commit": "3711f93",
+  "teacher_model": "solar-pro2",
+  "base_split_seed": 42,
+  "split_query_ids": {
+    "train": [
+      "A01",
+      "A02",
+      "A03",
+      "A04",
+      "A05",
+      "I01",
+      "I02",
+      "I03",
+      "I04",
+      "I05",
+      "M01",
+      "M03",
+      "T02",
+      "T06",
+      "T07",
+      "T10",
+      "T11",
+      "T12",
+      "X03"
+    ],
+    "val": [
+      "I06",
+      "T03",
+      "T04",
+      "T05",
+      "X01"
+    ],
+    "test": [
+      "A06",
+      "M02",
+      "T01",
+      "T08",
+      "T09",
+      "X02"
+    ]
+  },
+  "counts": {
+    "train": 173,
+    "val": 10,
+    "test": 6
+  },
+  "augment": {
+    "paraphrases_per_train_query": 4,
+    "make_abstain_examples": true,
+    "abstain_distractor_k": 5,
+    "synth_queries_from_corpus": 60,
+    "synth_chunks_per_query": 3,
+    "leak_jaccard_threshold": 0.6
+  },
+  "quality": {
+    "min_answer_chars": 10,
+    "max_answer_chars": 1500,
+    "dedup": true
+  },
+  "sha256": {
+    "train": "c8c717609c70f1e8",
+    "val": "83e89e2eeffd520b",
+    "test": "ed8737243e265ab0"
+  },
+  "leak_controls": [
+    "split_by_query_id",
+    "no_paraphrase_in_val_test",
+    "synth_query_jaccard_filter",
+    "test_is_original_heldout"
+  ]
+}

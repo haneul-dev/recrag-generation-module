@@ -8,10 +8,14 @@ meta:
   project: RECRAG
   module: generation_finetune
   scope: step_8_9
-  config_version: "0.1-qlora"
+  config_version: "0.2-qlora-paper"
 
 # ─────────────────────────────────────────────────────────────
 # 1. 합성 데이터 생성 (teacher LLM 으로 정답 타깃 생성)
+#    설계 원칙(논문급):
+#    - 누수 차단: base 쿼리 단위로 train/val/test 분할. test는 held-out(원본만).
+#    - 규모: 코퍼스 기반 신규 쿼리 합성 + 패러프레이즈(train 한정)로 확대.
+#    - 품질: 형식·인용 검증 + 중복/길이 필터 + 재현용 manifest(해시/시드/모델).
 # ─────────────────────────────────────────────────────────────
 synth:
   # teacher = 정답(gold) 출력을 만들어 줄 더 큰 LLM. OpenAI 호환 API.
@@ -25,26 +29,49 @@ synth:
     request_timeout_s: 60
     max_retries: 3                    # 형식검증 실패 시 재생성 횟수
 
-  # 입력 데이터 (Colab 업로드 경로 기준 — 상대경로는 config 위치 기준 절대화)
+  # 입력 데이터 (상대경로는 repo 루트 기준 절대화)
   source:
-    # 정답 근거가 포함된 manual top-5 평가셋 (gold context)
-    manual_eval_set: "data/eval_set.manual_top5.jsonl"
-    # 코퍼스 (abstain용 distractor 추출에 사용)
-    corpus: "data/corpus_200.jsonl"
+    manual_eval_set: "data/eval_set.manual_top5.jsonl"   # gold context
+    corpus: "data/corpus_200.jsonl"                       # 신규쿼리/distractor 원천
+
+  # 누수 없는 분할 (base 쿼리 단위)
+  split:
+    train_ratio: 0.70
+    val_ratio: 0.15
+    test_ratio: 0.15
+    seed: 42
 
   # 증강 규모
   augment:
-    paraphrases_per_query: 3          # 쿼리당 패러프레이즈 N개 (0이면 원문만)
-    make_abstain_examples: true       # 근거부족(abstain) 학습 예시 생성
+    paraphrases_per_train_query: 4    # train 쿼리당 패러프레이즈 N (val/test=0, 누수방지)
+    make_abstain_examples: true       # 근거부족(abstain) 학습 예시 (train/val)
     abstain_distractor_k: 5           # abstain 예시에 넣을 무관 청크 수
-    seed: 42
+    synth_queries_from_corpus: 60     # 코퍼스 기반 신규 쿼리 수 (train 한정, 규모 확대)
+    synth_chunks_per_query: 3         # 신규 쿼리 1개당 근거 청크 수
+    leak_jaccard_threshold: 0.6       # 신규/val/test 쿼리 토큰 자카드 ≥이면 누수로 폐기
 
-  # 출력 (학습용 JSONL: {"messages":[...]} 형식)
+  # 품질 필터
+  quality:
+    min_answer_chars: 10
+    max_answer_chars: 1500
+    dedup: true                       # 정규화 텍스트 기준 중복 제거
+
+  # 출력
   output:
-    train_path: "finetune/data/sft_train.jsonl"
-    val_path: "finetune/data/sft_val.jsonl"
-    val_ratio: 0.1
+    train_path: "finetune/data/sft_train.jsonl"   # SFT messages (증강 포함)
+    val_path: "finetune/data/sft_val.jsonl"       # SFT messages (원본만, eval_loss용)
+    test_path: "finetune/data/test.jsonl"         # held-out RAG-input (정량평가용)
+    manifest_path: "finetune/data/dataset_manifest.json"
     include_fewshot: false            # 파인튜닝 시 few-shot 제외(형식은 타깃으로 학습)
+
+# ─────────────────────────────────────────────────────────────
+# 1b. 정량 평가 (base vs 파인튜닝, held-out test)
+# ─────────────────────────────────────────────────────────────
+eval:
+  test_path: "finetune/data/test.jsonl"
+  warmup: 1                           # 첫 1회 warmup (latency 집계 제외)
+  results_dir: "finetune/outputs/eval"
+  # 답불가(abstain) 판정: relevant_chunk_ids 비었거나 query_id가 X로 시작
 
 # ─────────────────────────────────────────────────────────────
 # 2. QLoRA 학습
