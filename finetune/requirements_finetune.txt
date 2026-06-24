@@ -1,0 +1,9 @@
+# RECRAG 생성 모듈 — QLoRA 파인튜닝 추가 의존성 (Colab T4 기준)
+# 기존 requirements.txt(transformers/accelerate/bitsandbytes 등)에 더해 설치.
+
+peft>=0.13.0            # LoRA / QLoRA 어댑터
+datasets>=2.20.0        # JSONL 학습셋 로드
+trl>=0.11.0             # (선택) SFT 유틸 — 본 스크립트는 미사용이나 호환 위해 권장
+openai>=1.40.0          # teacher LLM 호출 (Upstage Solar / OpenAI 호환)
+# bitsandbytes/accelerate/transformers 는 상위 requirements.txt 사용.
+# torch 는 Colab 기본 설치본 권장.

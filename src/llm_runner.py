@@ -25,6 +25,8 @@ class LLMRunner:
         self.max_output_tokens = int(m["max_output_tokens"])
         self.repetition_penalty = m.get("repetition_penalty", None)
         self.quantization = (m.get("quantization") or "none").lower()
+        # 파인튜닝 LoRA 어댑터 경로(선택). 지정 시 base 위에 어댑터를 얹어 추론한다.
+        self.adapter_path = m.get("adapter_path", None)
 
         self.tokenizer = None
         self.model = None
@@ -52,6 +54,14 @@ class LLMRunner:
                 load_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
 
         self.model = AutoModelForCausalLM.from_pretrained(self.model_id, **load_kwargs)
+
+        # 파인튜닝 어댑터가 지정되면 base 위에 로드 (QLoRA 결과 추론)
+        if self.adapter_path:
+            from peft import PeftModel
+
+            self.model = PeftModel.from_pretrained(self.model, self.adapter_path)
+            self.decoding_note_adapter = self.adapter_path
+
         self.model.eval()
         return self
 

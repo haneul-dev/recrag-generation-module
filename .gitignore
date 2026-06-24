@@ -1,5 +1,7 @@
 # ── 실행 산출물 (결과는 Colab/로컬에서 생성, repo에 올리지 않음) ──
 outputs/
+finetune/outputs/      # QLoRA 어댑터(대용량) — repo에 올리지 않음
+finetune/data/         # 합성 학습셋(JSONL) — 재생성 가능
 *.log
 *.tmp
 

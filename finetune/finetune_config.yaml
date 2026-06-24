@@ -1,0 +1,86 @@
+# RECRAG Step 8~9 생성 모듈 — QLoRA 파인튜닝 설정
+# 목표: (1) 출력형식/인용/근거성 준수  (2) 답변 품질(answer_f1) 동시 개선
+# 환경: Colab T4 (16GB) 기준 — base 모델 4bit(nf4) + LoRA 어댑터 학습.
+#
+# 단일 진실 소스: 이 파일. 코드에 하드코딩하지 않는다.
+
+meta:
+  project: RECRAG
+  module: generation_finetune
+  scope: step_8_9
+  config_version: "0.1-qlora"
+
+# ─────────────────────────────────────────────────────────────
+# 1. 합성 데이터 생성 (teacher LLM 으로 정답 타깃 생성)
+# ─────────────────────────────────────────────────────────────
+synth:
+  # teacher = 정답(gold) 출력을 만들어 줄 더 큰 LLM. OpenAI 호환 API.
+  teacher:
+    provider: "upstage"               # upstage(Solar) | openai | custom
+    model: "solar-pro2"               # 예: solar-pro2 / gpt-4o / gpt-4o-mini
+    base_url: null                    # null이면 provider 기본값 사용
+    api_key_env: "UPSTAGE_API_KEY"    # 환경변수 이름 (openai면 OPENAI_API_KEY)
+    temperature: 0.2                  # 정답 생성은 약간의 다양성만
+    max_tokens: 768
+    request_timeout_s: 60
+    max_retries: 3                    # 형식검증 실패 시 재생성 횟수
+
+  # 입력 데이터 (Colab 업로드 경로 기준 — 상대경로는 config 위치 기준 절대화)
+  source:
+    # 정답 근거가 포함된 manual top-5 평가셋 (gold context)
+    manual_eval_set: "data/eval_set.manual_top5.jsonl"
+    # 코퍼스 (abstain용 distractor 추출에 사용)
+    corpus: "data/corpus_200.jsonl"
+
+  # 증강 규모
+  augment:
+    paraphrases_per_query: 3          # 쿼리당 패러프레이즈 N개 (0이면 원문만)
+    make_abstain_examples: true       # 근거부족(abstain) 학습 예시 생성
+    abstain_distractor_k: 5           # abstain 예시에 넣을 무관 청크 수
+    seed: 42
+
+  # 출력 (학습용 JSONL: {"messages":[...]} 형식)
+  output:
+    train_path: "finetune/data/sft_train.jsonl"
+    val_path: "finetune/data/sft_val.jsonl"
+    val_ratio: 0.1
+    include_fewshot: false            # 파인튜닝 시 few-shot 제외(형식은 타깃으로 학습)
+
+# ─────────────────────────────────────────────────────────────
+# 2. QLoRA 학습
+# ─────────────────────────────────────────────────────────────
+train:
+  base_model: "Qwen/Qwen2.5-7B-Instruct"
+  output_dir: "finetune/outputs/qwen2.5-7b-recrag-qlora"
+
+  # 4bit (QLoRA) — T4 메모리 절약
+  quantization:
+    load_in_4bit: true
+    bnb_4bit_quant_type: "nf4"
+    bnb_4bit_compute_dtype: "float16"
+    bnb_4bit_use_double_quant: true
+
+  # LoRA 어댑터
+  lora:
+    r: 16
+    alpha: 32
+    dropout: 0.05
+    target_modules: ["q_proj", "k_proj", "v_proj", "o_proj",
+                     "gate_proj", "up_proj", "down_proj"]
+
+  # 시퀀스/배치 (T4 16GB 안전값)
+  max_seq_len: 1536
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 16     # 유효 배치 16
+  num_train_epochs: 3
+  learning_rate: 2.0e-4
+  warmup_ratio: 0.03
+  lr_scheduler_type: "cosine"
+  weight_decay: 0.0
+  logging_steps: 5
+  eval_steps: 20
+  save_steps: 50
+  save_total_limit: 2
+  gradient_checkpointing: true
+  optim: "paged_adamw_8bit"           # bitsandbytes paged optimizer
+  seed: 42
