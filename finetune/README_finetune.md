@@ -15,8 +15,10 @@ Qwen2.5-7B-Instruct를 **고정 추론**하던 생성 모듈에, **파인튜닝(
 | `finetune_config.yaml` | 단일 설정 소스 (teacher / 분할 / 증강 / 품질 / LoRA / 학습 / 평가) |
 | `build_sft_dataset.py` | 합성 학습셋 생성 — **누수 없는 분할** + 신규쿼리 합성 + 품질필터 + manifest |
 | `train_qlora.py` | QLoRA SFT 학습 → LoRA 어댑터 저장 |
-| `evaluate.py` | **held-out test 정량 평가** + base vs 파인튜닝 비교표 |
-| `colab_finetune.ipynb` | 원클릭 Colab 런북 (clone→학습→평가) |
+| `evaluate.py` | **held-out test 정량 평가**(repeats 반복측정·zero/few-shot) + 비교표 |
+| `build_synth_test.py` | 합성 held-out 평가셋 확대(약지도, 누수 가드) |
+| `merge_adapter.py` | LoRA 어댑터를 base에 병합(추론 latency 공정화/배포) |
+| `colab_finetune.ipynb` | 원클릭 Colab 런북 (clone→학습→평가→merge) |
 
 ## 논문급 설계
 

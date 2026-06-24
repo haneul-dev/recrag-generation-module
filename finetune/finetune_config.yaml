@@ -68,10 +68,21 @@ synth:
 # 1b. 정량 평가 (base vs 파인튜닝, held-out test)
 # ─────────────────────────────────────────────────────────────
 eval:
-  test_path: "finetune/data/test.jsonl"
+  test_path: "finetune/data/test.jsonl"        # gold held-out
+  test_synth_path: "finetune/data/test_synth.jsonl"  # 합성 held-out(약지도)
   warmup: 1                           # 첫 1회 warmup (latency 집계 제외)
+  repeats: 3                          # 쿼리당 latency 반복측정(중앙값) — 노이즈 완화
   results_dir: "finetune/outputs/eval"
   # 답불가(abstain) 판정: relevant_chunk_ids 비었거나 query_id가 X로 시작
+
+# ─────────────────────────────────────────────────────────────
+# 1c. 합성 held-out 평가셋 확대 (통계력 보강, 약지도)
+# ─────────────────────────────────────────────────────────────
+synth_test:
+  count: 40                           # 합성 test 쿼리 수
+  chunks_per_query: 2                 # 정답 근거 청크 수(=relevant)
+  distractors: 3                      # retrieved에 섞을 무관 청크 수
+  leak_jaccard_threshold: 0.6         # train/val/gold-test와 유사하면 폐기
 
 # ─────────────────────────────────────────────────────────────
 # 2. QLoRA 학습

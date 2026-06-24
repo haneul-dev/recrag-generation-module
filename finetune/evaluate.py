@@ -31,6 +31,7 @@ import argparse
 import json
 import os
 import re
+import statistics
 import sys
 import time
 from collections import Counter
@@ -117,7 +118,8 @@ def _build_model_cfg(cfg: dict, repo_root: str, adapter: str | None) -> dict:
 
 
 def run_eval(cfg: dict, repo_root: str, test_path: str, adapter: str | None,
-             tag: str, warmup: int, results_dir: str, fewshot: bool = True) -> dict:
+             tag: str, warmup: int, results_dir: str, fewshot: bool = True,
+             repeats: int = 3) -> dict:
     from data_loader import load_eval_set, filter_chunks
     from prompt_builder import build_messages
     from output_parser import parse_generation_output
@@ -142,9 +144,15 @@ def run_eval(cfg: dict, repo_root: str, test_path: str, adapter: str | None,
         used_ids = f["used_chunk_ids"]
         msgs = build_messages(row["query"], f["used_chunks"], fewshot=fewshot)
 
-        t0 = time.monotonic()
-        gen = runner.generate(msgs)
-        lat_ms = (time.monotonic() - t0) * 1000.0
+        # greedy 디코딩은 결정적 → 출력/지표는 1회로 충분, latency만 repeats회 측정
+        row_lats, gen = [], None
+        for i in range(max(1, repeats)):
+            t0 = time.monotonic()
+            g = runner.generate(msgs)
+            row_lats.append((time.monotonic() - t0) * 1000.0)
+            if i == 0:
+                gen = g
+        lat_ms = statistics.median(row_lats)   # 쿼리별 중앙값(노이즈 완화)
         latencies.append(lat_ms)
         in_toks.append(gen["input_token_count"])
         out_toks.append(gen["output_token_count"])
@@ -154,10 +162,12 @@ def run_eval(cfg: dict, repo_root: str, test_path: str, adapter: str | None,
         rec = {
             "query_id": row.get("query_id"), "group": "abstain" if is_abs else "answerable",
             "format_compliance": parsed["format_compliance"],
+            "error_type": parsed["error_type"],
             "groundedness_note": parsed["groundedness_note"],
             "cited_chunk_ids": parsed["cited_chunk_ids"],
             "latency_ms": round(lat_ms, 1),
             "output_token_count": gen["output_token_count"],
+            "output_text": gen["output_text"],   # 디버그용 원문
         }
 
         if is_abs:
@@ -186,6 +196,7 @@ def run_eval(cfg: dict, repo_root: str, test_path: str, adapter: str | None,
     summary = {
         "tag": tag, "adapter": adapter, "test_path": test_path,
         "prompt_mode": "fewshot" if fewshot else "zeroshot",
+        "repeats": repeats,
         "n_total": len(rows), "n_answerable": n_ans, "n_abstain": n_abs,
         "mean_input_tokens": round(_mean(in_toks), 1),
         "mean_output_tokens": round(_mean(out_toks), 1),
@@ -270,6 +281,7 @@ def main():
     ap.add_argument("--prompt", choices=["fewshot", "zeroshot"], default="zeroshot",
                     help="평가 프롬프트 모드. 파인튜닝 모델은 zeroshot 이 정합적.")
     ap.add_argument("--warmup", type=int, default=None)
+    ap.add_argument("--repeats", type=int, default=None, help="쿼리당 latency 반복측정 횟수")
     ap.add_argument("--compare", nargs=2, metavar=("BASE_JSON", "FT_JSON"))
     args = ap.parse_args()
 
@@ -288,10 +300,11 @@ def main():
     test_path = _abs(args.test or ecfg.get("test_path", "finetune/data/test.jsonl"))
     results_dir = _abs(ecfg.get("results_dir", "finetune/outputs/eval"))
     warmup = args.warmup if args.warmup is not None else int(ecfg.get("warmup", 1))
+    repeats = args.repeats if args.repeats is not None else int(ecfg.get("repeats", 3))
     adapter = _abs(args.adapter) if args.adapter else None
 
     run_eval(cfg, repo_root, test_path, adapter, args.tag, warmup, results_dir,
-             fewshot=(args.prompt == "fewshot"))
+             fewshot=(args.prompt == "fewshot"), repeats=repeats)
 
 
 if __name__ == "__main__":
