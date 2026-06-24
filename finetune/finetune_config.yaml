@@ -71,6 +71,7 @@ train:
   # 시퀀스/배치 (T4 16GB 안전값)
   max_seq_len: 1536
   per_device_train_batch_size: 1
+  per_device_eval_batch_size: 1       # 평가 OOM 방지(T4): eval logits는 vocab 15만×fp32라 큼
   gradient_accumulation_steps: 16     # 유효 배치 16
   num_train_epochs: 3
   learning_rate: 2.0e-4

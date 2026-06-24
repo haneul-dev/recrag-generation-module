@@ -17,6 +17,9 @@ import argparse
 import json
 import os
 
+# CUDA 메모리 단편화 완화 (torch import 전에 설정해야 적용됨)
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 import torch
 import yaml
 from datasets import load_dataset
@@ -150,6 +153,8 @@ def main():
     targs = TrainingArguments(
         output_dir=output_dir,
         per_device_train_batch_size=int(t["per_device_train_batch_size"]),
+        per_device_eval_batch_size=int(t.get("per_device_eval_batch_size", 1)),
+        eval_accumulation_steps=1,   # 평가 logits를 매 스텝 CPU로 내려 GPU 누적 방지
         gradient_accumulation_steps=int(t["gradient_accumulation_steps"]),
         num_train_epochs=float(t["num_train_epochs"]),
         learning_rate=float(t["learning_rate"]),
